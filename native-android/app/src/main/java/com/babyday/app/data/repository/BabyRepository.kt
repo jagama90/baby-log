@@ -6,6 +6,7 @@ import com.babyday.app.data.remote.SupabaseClientProvider
 import io.github.jan.supabase.postgrest.from
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.util.UUID
 
 class BabyRepository {
 
@@ -29,13 +30,16 @@ class BabyRepository {
 
     suspend fun createBaby(name: String, birthDate: String, gender: String, userId: String): Baby {
         userRepository.ensureCurrentUserProfile()
-        val baby = client.from("babies").insert(
-            mapOf("name" to name, "birth_date" to birthDate, "gender" to gender, "created_by" to userId)
-        ).decodeSingle<Baby>()
-        client.from("baby_members").insert(
-            mapOf("baby_id" to baby.id, "user_id" to userId, "role" to "parent")
+        // Generate UUID client-side to avoid the RLS circular dependency:
+        // babies SELECT requires baby_members, but baby_members needs the ID from babies INSERT response.
+        val babyId = UUID.randomUUID().toString()
+        client.from("babies").insert(
+            mapOf("id" to babyId, "name" to name, "birth_date" to birthDate, "gender" to gender, "created_by" to userId)
         )
-        return baby
+        client.from("baby_members").insert(
+            mapOf("baby_id" to babyId, "user_id" to userId, "role" to "parent")
+        )
+        return Baby(id = babyId, name = name, birthDate = birthDate, gender = gender)
     }
 
     suspend fun updateBaby(babyId: String, fields: Map<String, Any?>) {
